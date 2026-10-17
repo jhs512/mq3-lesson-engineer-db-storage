@@ -1,0 +1,1422 @@
+{
+  "schema_version": 1,
+  "id": "engineer-db-storage",
+  "revision": "v1.0.0",
+  "title": "제약조건·뷰·인덱스와 물리 설계",
+  "description": "제약조건으로 잘못된 행을 막고, 뷰와 인덱스로 읽는 방법을 바꿔 봐요. 반정규화·파티셔닝 같은 물리 설계 용어도 적어요. 필수 문제 8개와 선택 도전 2개예요.",
+  "sources": [
+    "https://www.q-net.or.kr/pageLink.do?link=cst/cstReport&jmCd=1320&mcrtrNo=991",
+    "https://www.q-net.or.kr/pageLink.do?link=cst/cstReport&jmCd=1320&mcrtrNo=1453",
+    "https://www.sqlite.org/lang_createtable.html",
+    "https://www.sqlite.org/lang_conflict.html",
+    "https://www.sqlite.org/foreignkeys.html",
+    "https://www.sqlite.org/lang_createview.html",
+    "https://www.sqlite.org/eqp.html",
+    "https://learn.microsoft.com/sql/relational-databases/indexes/clustered-and-nonclustered-indexes-described",
+    "https://docs.oracle.com/en/database/oracle/oracle-database/19/vldbg/partition-concepts.html"
+  ],
+  "sections": [],
+  "review_enabled": false,
+  "tasks": [
+    {
+      "id": "not-null",
+      "title": "NOT NULL은 빈칸을 막아요",
+      "goal": "자, `CREATE TABLE`은 새 표를 만드는 명령이에요. 열 이름 뒤에 자료형을 적어요.\nINTEGER는 정수, TEXT는 글자예요. 제약조건(constraint)은 열에 거는 규칙이고요.\nNOT NULL을 붙인 열은 빈칸(NULL)을 받지 않아요. SQLite에서 빈 글자 `''`는 NULL이 아니에요. 글자가 0개인 값이죠.\n\n`INSERT INTO 표 SELECT ...`는 고른 행을 그 표에 넣어요. `INSERT OR IGNORE`는 규칙에 막힌 행만 건너뛰는 SQLite 문법이고요.\nmain.sql은 회원 표만 만들어요. after.sql이 가입 신청을 옮겨 담고 보여 줘요.\n실행하면 아직 규칙이 없어서 가입 신청이 모두 들어와요. 4번 choi의 email이 빈 글자 `''`예요.\nemail 열에 NOT NULL을 붙이고 다시 실행해 처음 결과와 비교하세요.",
+      "language": "sql",
+      "entry_file": "main.sql",
+      "starter_code": "-- 회원 표를 만들어요. 열마다 이름과 자료형을 적어요.\nCREATE TABLE member (\n  -- 회원 번호는 정수예요. 기본키라서 겹치지 않아요.\n  id INTEGER PRIMARY KEY,\n  -- 이름은 글자예요.\n  name TEXT,\n  -- 연락용 이메일이에요. 꼭 있어야 해요.\n  email TEXT\n);\n-- 행은 after.sql이 옮겨 담아요. 규칙에 막힌 행은 그때 빠져요.\n",
+      "solution": "-- 회원 표를 만들어요. 열마다 이름과 자료형을 적어요.\nCREATE TABLE member (\n  -- 회원 번호는 정수예요. 기본키라서 겹치지 않아요.\n  id INTEGER PRIMARY KEY,\n  -- 이름은 글자예요.\n  name TEXT,\n  -- 연락용 이메일이에요. 꼭 있어야 해요.\n  email TEXT NOT NULL\n);\n-- 행은 after.sql이 옮겨 담아요. 규칙에 막힌 행은 그때 빠져요.\n",
+      "files": {
+        "setup.sql": "CREATE TABLE signup (id INTEGER, name TEXT, email TEXT);\nINSERT INTO signup VALUES (1, 'kim', 'kim@q.kr'), (2, 'lee', NULL), (3, NULL, 'park@q.kr'),\n  (4, 'choi', ''), (5, 'jung', 'jung@q.kr');\n",
+        "after.sql": "-- 가입 신청(signup) 표의 행을 회원 표로 옮겨요.\n-- OR IGNORE는 규칙에 막힌 행만 건너뛰고 계속 넣어요.\nINSERT OR IGNORE INTO member SELECT id, name, email FROM signup;\n-- 회원 표에 실제로 들어간 행을 번호 순서로 봐요.\nSELECT id, name, email FROM member ORDER BY id;\n"
+      },
+      "tests": [
+        {
+          "input": "",
+          "expected": "id | name | email\n1 | kim | kim@q.kr\n3 | NULL | park@q.kr\n4 | choi | \n5 | jung | jung@q.kr"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "`email TEXT`를 `email TEXT NOT NULL`로 바꿔요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "-- 회원 표를 만들어요. 열마다 이름과 자료형을 적어요.\nCREATE TABLE member (\n  -- 회원 번호는 정수예요. 기본키라서 겹치지 않아요.\n  id INTEGER PRIMARY KEY,\n  -- 이름은 글자예요.\n  name TEXT,\n  -- 연락용 이메일이에요. 꼭 있어야 해요.\n  email TEXT\n);\n-- 행은 after.sql이 옮겨 담아요. 규칙에 막힌 행은 그때 빠져요.\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. | choi |  / 5 | jung | jung@q.kr"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. SQLite에서 빈 글자 ''는 NULL이 아니라 NOT NULL을 통과해요."
+        },
+        {
+          "action": "patch_code",
+          "before": "  email TEXT\n",
+          "after": "  email TEXT NOT NULL\n",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. | choi |  / 5 | jung | jung@q.kr"
+        },
+        {
+          "action": "submit"
+        }
+      ],
+      "variations": [
+        {
+          "values": {
+            "setup": "CREATE TABLE signup (id INTEGER, name TEXT, email TEXT);\nINSERT INTO signup VALUES (1, 'han', NULL), (2, 'yoon', 'yoon@q.kr'), (3, 'seo', NULL), (4, NULL, '');\n"
+          },
+          "expected": "id | name | email\n2 | yoon | yoon@q.kr\n4 | NULL | "
+        },
+        {
+          "values": {
+            "setup": "CREATE TABLE signup (id INTEGER, name TEXT, email TEXT);\nINSERT INTO signup VALUES (1, 'ahn', 'ahn@q.kr'), (2, 'bae', 'bae@q.kr'), (3, 'cho', NULL),\n  (5, 'do', ''), (7, 'eun', NULL), (8, NULL, 'gu@q.kr');\n"
+          },
+          "expected": "id | name | email\n1 | ahn | ahn@q.kr\n2 | bae | bae@q.kr\n5 | do | \n8 | NULL | gu@q.kr"
+        }
+      ]
+    },
+    {
+      "id": "check-range",
+      "title": "CHECK는 조건이 거짓인 행을 막아요",
+      "goal": "`CHECK (조건)`을 붙이면 행을 넣을 때마다 그 조건을 따져요.\n조건이 거짓인 행은 표에 못 들어와요. 값의 범위를 지키는 규칙이죠.\n\nafter.sql이 옮겨 담는 담기 요청(cart_input)이에요.\n\n| id | item | qty |\n|---|---|---|\n| 1 | 펜 | 2 |\n| 2 | 공책 | 0 |\n| 3 | 지우개 | -1 |\n| 4 | 자 | 1 |\n| 5 | 풀 | NULL |\n| 6 | 가위 | 3 |\n\n장바구니(cart) 표는 수량이 1개 이상인 행만 받아야 해요.\n실행해서 위 표와 비교하세요. 지금 CHECK는 음수만 막아요.\nCHECK 조건을 고쳐 0도 막히게 하세요. 다시 실행해도 NULL 수량 행은 남아요.\nNULL과 비교하면 참도 거짓도 아니죠? CHECK는 거짓인 행만 막거든요.",
+      "language": "sql",
+      "entry_file": "main.sql",
+      "starter_code": "-- 장바구니 표를 만들어요.\nCREATE TABLE cart (\n  -- 요청 번호예요. 기본키라서 겹치지 않아요.\n  id INTEGER PRIMARY KEY,\n  -- 상품 이름이에요.\n  item TEXT,\n  -- 수량은 1개 이상이어야 해요. 넣을 때마다 CHECK가 따져요.\n  qty INTEGER CHECK (qty >= 0)\n);\n-- 행은 after.sql이 옮겨 담아요. 조건이 거짓인 행은 그때 빠져요.\n",
+      "solution": "-- 장바구니 표를 만들어요.\nCREATE TABLE cart (\n  -- 요청 번호예요. 기본키라서 겹치지 않아요.\n  id INTEGER PRIMARY KEY,\n  -- 상품 이름이에요.\n  item TEXT,\n  -- 수량은 1개 이상이어야 해요. 넣을 때마다 CHECK가 따져요.\n  qty INTEGER CHECK (qty > 0)\n);\n-- 행은 after.sql이 옮겨 담아요. 조건이 거짓인 행은 그때 빠져요.\n",
+      "files": {
+        "setup.sql": "CREATE TABLE cart_input (id INTEGER, item TEXT, qty INTEGER);\nINSERT INTO cart_input VALUES (1, '펜', 2), (2, '공책', 0), (3, '지우개', -1), (4, '자', 1), (5, '풀', NULL), (6, '가위', 3);\n",
+        "after.sql": "-- 담기 요청(cart_input)을 옮겨요. 막힌 행은 건너뛰어요.\nINSERT OR IGNORE INTO cart SELECT id, item, qty FROM cart_input;\n-- 들어간 행을 번호 순서로 봐요.\nSELECT id, item, qty FROM cart ORDER BY id;\n"
+      },
+      "tests": [
+        {
+          "input": "",
+          "expected": "id | item | qty\n1 | 펜 | 2\n4 | 자 | 1\n5 | 풀 | NULL\n6 | 가위 | 3"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "0도 막으려면 `>=`를 `>`로 바꿔요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "-- 장바구니 표를 만들어요.\nCREATE TABLE cart (\n  -- 요청 번호예요. 기본키라서 겹치지 않아요.\n  id INTEGER PRIMARY KEY,\n  -- 상품 이름이에요.\n  item TEXT,\n  -- 수량은 1개 이상이어야 해요. 넣을 때마다 CHECK가 따져요.\n  qty INTEGER CHECK (qty >= 0)\n);\n-- 행은 after.sql이 옮겨 담아요. 조건이 거짓인 행은 그때 빠져요.\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요.  | 1 / 5 | 풀 | NULL / 6 | 가위 | 3"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. `qty > 1`로 바꾸면 수량 1개짜리 정상 주문까지 막혀요."
+        },
+        {
+          "action": "patch_code",
+          "before": "CHECK (qty >= 0)",
+          "after": "CHECK (qty > 0)",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요.  | 1 / 5 | 풀 | NULL / 6 | 가위 | 3"
+        },
+        {
+          "action": "submit"
+        }
+      ],
+      "variations": [
+        {
+          "values": {
+            "setup": "CREATE TABLE cart_input (id INTEGER, item TEXT, qty INTEGER);\nINSERT INTO cart_input VALUES (1, '컵', 0), (2, '접시', 5), (3, '포크', 1), (4, '숟가락', -3);\n"
+          },
+          "expected": "id | item | qty\n2 | 접시 | 5\n3 | 포크 | 1"
+        },
+        {
+          "values": {
+            "setup": "CREATE TABLE cart_input (id INTEGER, item TEXT, qty INTEGER);\nINSERT INTO cart_input VALUES (1, '실', 1), (2, '바늘', NULL), (3, '단추', 0), (4, '천', 0), (5, '끈', 7);\n"
+          },
+          "expected": "id | item | qty\n1 | 실 | 1\n2 | 바늘 | NULL\n5 | 끈 | 7"
+        }
+      ]
+    },
+    {
+      "id": "unique-predict",
+      "title": "UNIQUE는 같은 값을 한 번만 받아요",
+      "goal": "UNIQUE를 붙인 열은 이미 있는 값과 같은 값을 받지 않아요.\n그래서 같은 값이 또 오면 먼저 들어온 행만 남아요. 기본키 열도 겹치는 값을 막고요.\nNULL은 값이 없다는 표시예요. SQLite는 NULL끼리 같다고 보지 않아서 여러 번 받아요.\n\n다음 SQL을 실행하지 말고 결과를 먼저 적으세요.\n첫 줄은 열 이름 `id | email`이에요. 값 줄도 열을 `|`로 나눠 적어요.\nNULL은 NULL로 찍혀요.\n\n```sql\n-- 이메일이 겹치지 않게 UNIQUE를 걸어요.\nCREATE TABLE member (\n  id INTEGER PRIMARY KEY,\n  email TEXT UNIQUE\n);\n-- 여섯 행을 차례로 넣어요. 막힌 행은 건너뛰어요.\nINSERT OR IGNORE INTO member VALUES\n  (1, 'a@q.kr'), (2, 'b@q.kr'), (3, 'a@q.kr'),\n  (4, NULL), (5, NULL), (2, 'c@q.kr');\nSELECT id, email FROM member ORDER BY id;\n```",
+      "language": "answer",
+      "entry_file": "answer.txt",
+      "starter_code": "?\n",
+      "solution": "id | email\n1 | a@q.kr\n2 | b@q.kr\n4 | NULL\n5 | NULL\n",
+      "files": {},
+      "tests": [
+        {
+          "input": "",
+          "expected": "id | email\n1 | a@q.kr\n2 | b@q.kr\n4 | null\n5 | null"
+        },
+        {
+          "input": "",
+          "expected": "id|email\n1|a@q.kr\n2|b@q.kr\n4|null\n5|null"
+        },
+        {
+          "input": "",
+          "expected": "1 | a@q.kr\n2 | b@q.kr\n4 | null\n5 | null"
+        },
+        {
+          "input": "",
+          "expected": "1|a@q.kr\n2|b@q.kr\n4|null\n5|null"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "3번 행은 1번과 이메일이 같아요.",
+        "(2, ...)는 두 번 나와요. 두 번째는 기본키에서 막혀요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "?\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. ?"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. NULL끼리 겹친다고 보고 5번 행을 빼기 쉬워요."
+        },
+        {
+          "action": "patch_code",
+          "before": "?",
+          "after": "id | email\n1 | a@q.kr\n2 | b@q.kr\n4 | NULL\n5 | NULL",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. 2 | b@q.kr / 4 | null / 5 | null"
+        },
+        {
+          "action": "submit"
+        }
+      ]
+    },
+    {
+      "id": "fk-cascade",
+      "title": "ON DELETE CASCADE는 자식 행도 지워요",
+      "goal": "외래키(FOREIGN KEY)는 다른 표의 기본키를 가리키는 열이에요.\n가리킴을 받는 행이 부모, 가리키는 행이 자식이에요. 자식이 있는 부모 행은 그냥 못 지워요.\n`ON DELETE CASCADE`를 붙이면 부모를 지울 때 자식 행도 함께 지워요.\n\n`DELETE FROM 표 WHERE 조건`은 조건에 맞는 행을 지워요.\nSQLite는 설정에 따라 외래키 검사가 꺼져 있기도 해요. 이 문제는 미리 켜 뒀어요.\n고객(customer)은 kim 1번, lee 2번, park 3번이에요.\n받아 둔 주문(new_orders)이에요. customer_id가 고객 번호예요.\n\n| id | customer_id | item |\n|---|---|---|\n| 10 | 1 | 펜 |\n| 11 | 2 | 컵 |\n| 12 | 2 | 가방 |\n| 13 | 3 | 잉크 |\n| 14 | 1 | 공책 |\n\n준비 코드를 실행해 오류 메시지를 읽어 보세요. 결과 행은 안 나와요.\n`FOREIGN KEY constraint failed`는 외래키 규칙에 막혔다는 뜻이에요. 주문이 남은 lee를 지우려던 DELETE에서 멈췄죠.\nFOREIGN KEY 줄 끝에 `ON DELETE CASCADE`를 붙이고 다시 실행하세요. 위 표와 비교해 lee의 주문을 찾아보세요.",
+      "language": "sql",
+      "entry_file": "main.sql",
+      "starter_code": "-- 주문 표를 만들어요.\nCREATE TABLE orders (\n  id INTEGER PRIMARY KEY,\n  -- 주문한 고객의 번호예요.\n  customer_id INTEGER,\n  item TEXT,\n  -- 외래키예요. customer_id는 고객(customer) 표의 id를 가리켜요.\n  FOREIGN KEY (customer_id) REFERENCES customer(id)\n);\n-- 받아 둔 주문(new_orders)을 옮겨 담아요.\nINSERT INTO orders SELECT id, customer_id, item FROM new_orders;\n-- 탈퇴한 고객 lee를 고객 표에서 지워요.\nDELETE FROM customer WHERE name = 'lee';\n-- 남은 주문을 번호 순서로 봐요.\nSELECT id, customer_id, item FROM orders ORDER BY id;\n",
+      "solution": "-- 주문 표를 만들어요.\nCREATE TABLE orders (\n  id INTEGER PRIMARY KEY,\n  -- 주문한 고객의 번호예요.\n  customer_id INTEGER,\n  item TEXT,\n  -- 외래키예요. customer_id는 고객(customer) 표의 id를 가리켜요.\n  FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE CASCADE\n);\n-- 받아 둔 주문(new_orders)을 옮겨 담아요.\nINSERT INTO orders SELECT id, customer_id, item FROM new_orders;\n-- 탈퇴한 고객 lee를 고객 표에서 지워요.\nDELETE FROM customer WHERE name = 'lee';\n-- 남은 주문을 번호 순서로 봐요.\nSELECT id, customer_id, item FROM orders ORDER BY id;\n",
+      "files": {
+        "setup.sql": "PRAGMA foreign_keys = ON;\nCREATE TABLE customer (id INTEGER PRIMARY KEY, name TEXT);\nINSERT INTO customer VALUES (1, 'kim'), (2, 'lee'), (3, 'park');\nCREATE TABLE new_orders (id INTEGER, customer_id INTEGER, item TEXT);\nINSERT INTO new_orders VALUES (10, 1, '펜'), (11, 2, '컵'), (12, 2, '가방'), (13, 3, '잉크'), (14, 1, '공책');\n"
+      },
+      "tests": [
+        {
+          "input": "",
+          "expected": "id | customer_id | item\n10 | 1 | 펜\n13 | 3 | 잉크\n14 | 1 | 공책"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "`REFERENCES customer(id)` 뒤에 `ON DELETE CASCADE`를 붙여요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "-- 주문 표를 만들어요.\nCREATE TABLE orders (\n  id INTEGER PRIMARY KEY,\n  -- 주문한 고객의 번호예요.\n  customer_id INTEGER,\n  item TEXT,\n  -- 외래키예요. customer_id는 고객(customer) 표의 id를 가리켜요.\n  FOREIGN KEY (customer_id) REFERENCES customer(id)\n);\n-- 받아 둔 주문(new_orders)을 옮겨 담아요.\nINSERT INTO orders SELECT id, customer_id, item FROM new_orders;\n-- 탈퇴한 고객 lee를 고객 표에서 지워요.\nDELETE FROM customer WHERE name = 'lee';\n-- 남은 주문을 번호 순서로 봐요.\nSELECT id, customer_id, item FROM orders ORDER BY id;\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": true
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "지금 코드는 검사를 통과하지 못해요."
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. `ON DELETE SET NULL`을 붙이면 주문은 남고 고객 번호만 NULL이 돼요."
+        },
+        {
+          "action": "patch_code",
+          "before": "REFERENCES customer(id)\n",
+          "after": "REFERENCES customer(id) ON DELETE CASCADE\n",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요.  | 펜 / 13 | 3 | 잉크 / 14 | 1 | 공책"
+        },
+        {
+          "action": "submit"
+        }
+      ],
+      "variations": [
+        {
+          "values": {
+            "setup": "PRAGMA foreign_keys = ON;\nCREATE TABLE customer (id INTEGER PRIMARY KEY, name TEXT);\nINSERT INTO customer VALUES (1, 'lee'), (2, 'kim');\nCREATE TABLE new_orders (id INTEGER, customer_id INTEGER, item TEXT);\nINSERT INTO new_orders VALUES (20, 1, '펜'), (21, 2, '컵'), (22, 1, '잉크');\n"
+          },
+          "expected": "id | customer_id | item\n21 | 2 | 컵"
+        },
+        {
+          "values": {
+            "setup": "PRAGMA foreign_keys = ON;\nCREATE TABLE customer (id INTEGER PRIMARY KEY, name TEXT);\nINSERT INTO customer VALUES (1, 'choi'), (2, 'lee'), (3, 'han'), (4, 'leeseo');\nCREATE TABLE new_orders (id INTEGER, customer_id INTEGER, item TEXT);\nINSERT INTO new_orders VALUES (30, 3, '책'), (31, 2, '종이'), (32, 4, '봉투'), (33, 2, '풀'), (34, 1, '끈');\n"
+          },
+          "expected": "id | customer_id | item\n30 | 3 | 책\n32 | 4 | 봉투\n34 | 1 | 끈"
+        }
+      ]
+    },
+    {
+      "id": "view-live",
+      "title": "뷰는 읽을 때마다 다시 계산해요",
+      "goal": "뷰(VIEW)는 이름을 붙여 저장한 SELECT예요. 결과 행을 따로 복사해 두지 않아요. 그래서 가상 테이블이라고도 해요.\n뷰를 읽을 때마다 원래 표에서 다시 계산하죠.\n`CREATE TABLE 이름 AS SELECT ...`는 달라요. 그 순간의 결과를 새 표로 복사해요.\n\n처음 매출(sales) 표예요.\n\n| region | amount |\n|---|---|\n| 서울 | 300 |\n| 부산 | 200 |\n| 서울 | 100 |\n\n준비 코드는 지역별 합계를 표로 복사한 뒤 부산 매출 500을 더 넣어요.\n실행해서 위 표와 비교하세요. 새 매출이 합계에 들어갔나요?\n첫 명령의 TABLE을 VIEW로 바꾸고 다시 실행하세요.\n부산의 합계가 어떻게 달라졌는지 비교해 보세요.",
+      "language": "sql",
+      "entry_file": "main.sql",
+      "starter_code": "-- 지역별 매출 합계를 region_total이라는 이름으로 만들어요.\nCREATE TABLE region_total AS\n  SELECT region, SUM(amount) AS total FROM sales GROUP BY region;\n-- 만든 뒤에 부산 매출이 한 건 더 들어와요.\nINSERT INTO sales VALUES ('부산', 500);\n-- 지역 이름 순서로 합계를 봐요.\nSELECT region, total FROM region_total ORDER BY region;\n",
+      "solution": "-- 지역별 매출 합계를 region_total이라는 이름으로 만들어요.\nCREATE VIEW region_total AS\n  SELECT region, SUM(amount) AS total FROM sales GROUP BY region;\n-- 만든 뒤에 부산 매출이 한 건 더 들어와요.\nINSERT INTO sales VALUES ('부산', 500);\n-- 지역 이름 순서로 합계를 봐요.\nSELECT region, total FROM region_total ORDER BY region;\n",
+      "files": {
+        "setup.sql": "CREATE TABLE sales (region TEXT, amount INTEGER);\nINSERT INTO sales VALUES ('서울', 300), ('부산', 200), ('서울', 100);\n"
+      },
+      "tests": [
+        {
+          "input": "",
+          "expected": "region | total\n부산 | 700\n서울 | 400"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "`CREATE TABLE region_total AS`를 `CREATE VIEW region_total AS`로 바꿔요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "-- 지역별 매출 합계를 region_total이라는 이름으로 만들어요.\nCREATE TABLE region_total AS\n  SELECT region, SUM(amount) AS total FROM sales GROUP BY region;\n-- 만든 뒤에 부산 매출이 한 건 더 들어와요.\nINSERT INTO sales VALUES ('부산', 500);\n-- 지역 이름 순서로 합계를 봐요.\nSELECT region, total FROM region_total ORDER BY region;\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. on | total / 부산 | 200 / 서울 | 400"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. `CREATE TABLE ... AS`로 만든 복사본은 나중에 넣은 행을 못 봐요."
+        },
+        {
+          "action": "patch_code",
+          "before": "CREATE TABLE region_total AS",
+          "after": "CREATE VIEW region_total AS",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. on | total / 부산 | 700 / 서울 | 400"
+        },
+        {
+          "action": "submit"
+        }
+      ],
+      "variations": [
+        {
+          "values": {
+            "setup": "CREATE TABLE sales (region TEXT, amount INTEGER);\nINSERT INTO sales VALUES ('대구', 50), ('부산', 10);\n"
+          },
+          "expected": "region | total\n대구 | 50\n부산 | 510"
+        },
+        {
+          "values": {
+            "setup": "CREATE TABLE sales (region TEXT, amount INTEGER);\nINSERT INTO sales VALUES ('서울', 1000), ('서울', 250);\n"
+          },
+          "expected": "region | total\n부산 | 500\n서울 | 1250"
+        }
+      ]
+    },
+    {
+      "id": "index-plan",
+      "title": "인덱스가 있으면 SCAN이 SEARCH로 바뀌어요",
+      "goal": "프로그램은 connect로 DB에 연결하고 execute로 SQL을 보내요.\nSQL 앞에 `EXPLAIN QUERY PLAN`을 붙이면 DB가 어떻게 찾을지 알려 줘요. SCAN은 표 전체를 훑어요. 행이 많아지면 느려지는 병목이 되죠.\n인덱스(index)는 열 값으로 행 위치를 찾는 목차예요. 그 열로 찾을 때 인덱스를 쓰면 SEARCH가 돼요.\n\n준비 코드를 실행해 페이지 수와 계획 줄을 보세요. 페이지(page)는 DB가 자료를 담는 같은 크기의 칸이에요.\n`# 인덱스는 아직 없어요.` 줄 자리에 customer_id 열 인덱스를 만드세요. SQL은 `CREATE INDEX 이름 ON 표(열)` 꼴이고, 이름은 idx_customer예요.\n여기는 파이썬이라 SQL을 표 만들 때처럼 `conn.execute('...')`의 따옴표 안에 넣어요.\n다시 실행해 계획과 페이지 수를 비교하세요. 인덱스는 표와 따로 저장돼요.",
+      "language": "python",
+      "entry_file": "main.py",
+      "starter_code": "import sqlite3\n\n# 주문 자료예요. 괄호 묶음 하나가 한 행(주문 번호, 고객 번호, 금액)이에요.\nrows = [(1, 3, 12000), (2, 1, 5000), (3, 3, 8000), (4, 2, 15000), (5, 3, 3000)]\n# 주문을 찾을 고객 번호예요.\ntarget = 3\n\n# 메모리 안에 새 DB를 열고 연결해요.\nconn = sqlite3.connect(':memory:')\n# 주문 표를 만들고, 자료를 ? 자리에 한 행씩 채워 넣어요.\nconn.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, amount INTEGER)')\nconn.executemany('INSERT INTO orders VALUES (?, ?, ?)', rows)\n# 인덱스는 아직 없어요.\n\n# PRAGMA page_count는 DB가 쓰는 페이지 수를 알려 줘요.\nprint('페이지 수:', conn.execute('PRAGMA page_count').fetchone()[0])\n# 고객 한 명의 주문을 찾는 SQL이에요.\nquery = 'SELECT id, amount FROM orders WHERE customer_id = ?'\n# 같은 SQL 앞에 EXPLAIN QUERY PLAN을 붙여 찾는 방법을 봐요.\nfor step in conn.execute('EXPLAIN QUERY PLAN ' + query, (target,)):\n    # 계획 한 줄도 괄호 묶음이에요. 넷째 값 step[3]이 찾는 방법을 적은 글이에요.\n    print('계획:', step[3])\n# 이번엔 SQL을 그대로 실행해 찾은 주문을 봐요.\nfor order in conn.execute(query, (target,)):\n    print('주문:', order)\n# 다 쓴 연결은 닫아요.\nconn.close()\n",
+      "solution": "import sqlite3\n\n# 주문 자료예요. 괄호 묶음 하나가 한 행(주문 번호, 고객 번호, 금액)이에요.\nrows = [(1, 3, 12000), (2, 1, 5000), (3, 3, 8000), (4, 2, 15000), (5, 3, 3000)]\n# 주문을 찾을 고객 번호예요.\ntarget = 3\n\n# 메모리 안에 새 DB를 열고 연결해요.\nconn = sqlite3.connect(':memory:')\n# 주문 표를 만들고, 자료를 ? 자리에 한 행씩 채워 넣어요.\nconn.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, amount INTEGER)')\nconn.executemany('INSERT INTO orders VALUES (?, ?, ?)', rows)\n# customer_id 열에 인덱스를 만들어요. 표와 따로 저장돼요.\nconn.execute('CREATE INDEX idx_customer ON orders(customer_id)')\n\n# PRAGMA page_count는 DB가 쓰는 페이지 수를 알려 줘요.\nprint('페이지 수:', conn.execute('PRAGMA page_count').fetchone()[0])\n# 고객 한 명의 주문을 찾는 SQL이에요.\nquery = 'SELECT id, amount FROM orders WHERE customer_id = ?'\n# 같은 SQL 앞에 EXPLAIN QUERY PLAN을 붙여 찾는 방법을 봐요.\nfor step in conn.execute('EXPLAIN QUERY PLAN ' + query, (target,)):\n    # 계획 한 줄도 괄호 묶음이에요. 넷째 값 step[3]이 찾는 방법을 적은 글이에요.\n    print('계획:', step[3])\n# 이번엔 SQL을 그대로 실행해 찾은 주문을 봐요.\nfor order in conn.execute(query, (target,)):\n    print('주문:', order)\n# 다 쓴 연결은 닫아요.\nconn.close()\n",
+      "files": {},
+      "tests": [
+        {
+          "input": "",
+          "expected": "페이지 수: 3\n계획: SEARCH orders USING INDEX idx_customer (customer_id=?)\n주문: (1, 12000)\n주문: (3, 8000)\n주문: (5, 3000)"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "`conn.execute('CREATE INDEX idx_customer ON orders(customer_id)')`를 넣어요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "import sqlite3\n\n# 주문 자료예요. 괄호 묶음 하나가 한 행(주문 번호, 고객 번호, 금액)이에요.\nrows = [(1, 3, 12000), (2, 1, 5000), (3, 3, 8000), (4, 2, 15000), (5, 3, 3000)]\n# 주문을 찾을 고객 번호예요.\ntarget = 3\n\n# 메모리 안에 새 DB를 열고 연결해요.\nconn = sqlite3.connect(':memory:')\n# 주문 표를 만들고, 자료를 ? 자리에 한 행씩 채워 넣어요.\nconn.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, amount INTEGER)')\nconn.executemany('INSERT INTO orders VALUES (?, ?, ?)', rows)\n# 인덱스는 아직 없어요.\n\n# PRAGMA page_count는 DB가 쓰는 페이지 수를 알려 줘요.\nprint('페이지 수:', conn.execute('PRAGMA page_count').fetchone()[0])\n# 고객 한 명의 주문을 찾는 SQL이에요.\nquery = 'SELECT id, amount FROM orders WHERE customer_id = ?'\n# 같은 SQL 앞에 EXPLAIN QUERY PLAN을 붙여 찾는 방법을 봐요.\nfor step in conn.execute('EXPLAIN QUERY PLAN ' + query, (target,)):\n    # 계획 한 줄도 괄호 묶음이에요. 넷째 값 step[3]이 찾는 방법을 적은 글이에요.\n    print('계획:', step[3])\n# 이번엔 SQL을 그대로 실행해 찾은 주문을 봐요.\nfor order in conn.execute(query, (target,)):\n    print('주문:', order)\n# 다 쓴 연결은 닫아요.\nconn.close()\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요.  / 주문: (3, 8000) / 주문: (5, 3000)"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. 찾는 열이 아닌 다른 열에 인덱스를 만들면 계획은 그대로 SCAN이에요."
+        },
+        {
+          "action": "patch_code",
+          "before": "# 인덱스는 아직 없어요.\n",
+          "after": "# customer_id 열에 인덱스를 만들어요. 표와 따로 저장돼요.\nconn.execute('CREATE INDEX idx_customer ON orders(customer_id)')\n",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요.  / 주문: (3, 8000) / 주문: (5, 3000)"
+        },
+        {
+          "action": "submit"
+        }
+      ],
+      "checker": "import ast\nimport builtins\nimport contextlib\nimport io\nimport math\nimport os\nfrom pathlib import Path\nimport shutil\nimport sys\nimport tempfile\nimport traceback\nimport warnings\n\nos.environ['MPLBACKEND'] = 'Agg'\n# Grading output is for the verdict only; font and library warnings would bury the reason.\nwarnings.filterwarnings('ignore')\nbuiltins.display = lambda *args, **kwargs: None\nreference = \"import sqlite3\\n\\n# 주문 자료예요. 괄호 묶음 하나가 한 행(주문 번호, 고객 번호, 금액)이에요.\\nrows = [(1, 3, 12000), (2, 1, 5000), (3, 3, 8000), (4, 2, 15000), (5, 3, 3000)]\\n# 주문을 찾을 고객 번호예요.\\ntarget = 3\\n\\n# 메모리 안에 새 DB를 열고 연결해요.\\nconn = sqlite3.connect(':memory:')\\n# 주문 표를 만들고, 자료를 ? 자리에 한 행씩 채워 넣어요.\\nconn.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, amount INTEGER)')\\nconn.executemany('INSERT INTO orders VALUES (?, ?, ?)', rows)\\n# customer_id 열에 인덱스를 만들어요. 표와 따로 저장돼요.\\nconn.execute('CREATE INDEX idx_customer ON orders(customer_id)')\\n\\n# PRAGMA page_count는 DB가 쓰는 페이지 수를 알려 줘요.\\nprint('페이지 수:', conn.execute('PRAGMA page_count').fetchone()[0])\\n# 고객 한 명의 주문을 찾는 SQL이에요.\\nquery = 'SELECT id, amount FROM orders WHERE customer_id = ?'\\n# 같은 SQL 앞에 EXPLAIN QUERY PLAN을 붙여 찾는 방법을 봐요.\\nfor step in conn.execute('EXPLAIN QUERY PLAN ' + query, (target,)):\\n    # 계획 한 줄도 괄호 묶음이에요. 넷째 값 step[3]이 찾는 방법을 적은 글이에요.\\n    print('계획:', step[3])\\n# 이번엔 SQL을 그대로 실행해 찾은 주문을 봐요.\\nfor order in conn.execute(query, (target,)):\\n    print('주문:', order)\\n# 다 쓴 연결은 닫아요.\\nconn.close()\\n\"\ncases = [{}, {'rows': [(1, 1, 100), (2, 2, 200), (3, 1, 300)], 'target': 1}, {'rows': [(1, 2, 7000), (2, 2, 9000), (3, 4, 1000), (4, 5, 2500)], 'target': 4}]\nnames = []\nbase_files = {}\nsource = open(sys.argv[1], encoding='utf8').read()\n\n\nclass Inputs(ast.NodeTransformer):\n    # Replace only the first prepared assignment to each changed name.\n    def __init__(self, values):\n        self.values = values\n        self.seen = set()\n\n    def visit_Assign(self, node):\n        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):\n            name = node.targets[0].id\n            if name in self.values and name not in self.seen:\n                self.seen.add(name)\n                node.value = ast.parse(repr(self.values[name]), mode='eval').body\n        return node\n\n\ndef execute(text, values):\n    tree = ast.fix_missing_locations(Inputs(values).visit(ast.parse(text)))\n    scope = {'__name__': '__main__'}\n    output = io.StringIO()\n    with contextlib.redirect_stdout(output):\n        exec(compile(tree, 'main.py', 'exec'), scope)\n    plt = sys.modules.get('matplotlib.pyplot')\n    if plt is not None:\n        plt.close('all')\n    return output.getvalue().rstrip('\\n'), scope\n\n\ndef same(actual, expected):\n    pd = sys.modules.get('pandas')\n    if pd is not None and isinstance(expected, (pd.DataFrame, pd.Series, pd.Index)):\n        if type(actual) is not type(expected):\n            return False\n        try:\n            if isinstance(expected, pd.DataFrame):\n                pd.testing.assert_frame_equal(actual, expected)\n            elif isinstance(expected, pd.Series):\n                pd.testing.assert_series_equal(actual, expected)\n            else:\n                pd.testing.assert_index_equal(actual, expected)\n            return True\n        except AssertionError:\n            return False\n    np = sys.modules.get('numpy')\n    if np is not None and isinstance(expected, np.ndarray):\n        # Model and scaler outputs: same shape, and values equal up to float rounding.\n        if not isinstance(actual, np.ndarray) or actual.shape != expected.shape:\n            return False\n        if expected.dtype.kind in 'fc':\n            return bool(np.allclose(actual, expected, rtol=1e-7, atol=1e-9, equal_nan=True))\n        return bool(np.array_equal(actual, expected))\n    if isinstance(expected, float) and isinstance(actual, (int, float)):\n        return math.isclose(actual, expected, rel_tol=1e-9, abs_tol=1e-12)\n    try:\n        return bool(actual == expected)\n    except Exception:\n        return False\n\n\ndef fail(message):\n    # The learner reads only this message, never the checker's own traceback.\n    print(message, file=sys.stderr)\n    sys.exit(1)\n\n\ndef snapshot(inputs):\n    # Files the run created or changed, such as a saved result CSV.\n    produced = {}\n    for path in Path('.').rglob('*'):\n        if path.is_file() and inputs.get(path.as_posix()) != path.read_bytes():\n            produced[path.as_posix()] = path.read_bytes()\n    return produced\n\n\ndef run_in_fresh_folder(files, text, values):\n    # Each run gets its own copy of the data, so files one run writes never help another.\n    home = os.getcwd()\n    folder = tempfile.mkdtemp(dir=home)\n    try:\n        os.chdir(folder)\n        inputs = {}\n        for path, content in files.items():\n            target = Path(path)\n            target.parent.mkdir(parents=True, exist_ok=True)\n            target.write_text(content, encoding='utf8')\n            inputs[target.as_posix()] = target.read_bytes()\n        output, scope = execute(text, values)\n        return output, scope, snapshot(inputs)\n    finally:\n        os.chdir(home)\n        shutil.rmtree(folder, ignore_errors=True)\n\n\ndef describe(case):\n    parts = [name + ' = ' + repr(value) for name, value in case.items() if name != 'files']\n    parts += [path + ' 내용' for path in case.get('files', {})]\n    return ', '.join(parts)\n\n\nMESSAGES = {'__figures__': '그래프의 종류·축 이름·값이 기준 그래프와 달라요. 바뀐 자료로도 같은 그래프를 그리세요.'}\nfor index, case in enumerate(cases):\n    values = {k: v for k, v in case.items() if k != 'files'}\n    files = {**base_files, **case.get('files', {})}\n    expected, wanted, made = run_in_fresh_folder(files, reference, values)\n    changed = '준비 값을 ' + describe(case) + '(으)로 바꾸면 '\n    try:\n        actual, scope, produced = run_in_fresh_folder(files, source, values)\n    except SystemExit:\n        fail('코드가 exit로 중간에 끝났어요. 끝까지 실행되게 하세요.')\n    except BaseException as error:\n        reason = ''.join(traceback.format_exception_only(type(error), error)).strip()\n        fail(('코드를 실행하면' if index == 0 else changed.rstrip()) + ' 오류가 나요.\\n' + reason)\n    if index == 0:\n        problem = '실행 결과가 기대와 달라요.'\n    else:\n        problem = changed + '결과가 달라요.\\n값이나 자료가 바뀌어도 맞는 방법인지 확인하세요.'\n    if actual != expected:\n        fail(problem + '\\n기대 출력:\\n' + expected[-600:] + '\\n실제 출력:\\n' + actual[-600:])\n    for name in names:\n        if name not in scope:\n            fail(name + '에 결과를 담아 주세요.')\n        if not same(scope[name], wanted[name]):\n            fail(problem + '\\n' + MESSAGES.get(name, name + '의 값이 기대와 달라요.'))\n    for path in sorted(made):\n        if path not in produced:\n            fail(problem + '\\n' + path + ' 파일을 저장하지 않았어요.')\n        if produced[path] != made[path]:\n            fail(problem + '\\n저장한 ' + path + ' 파일의 내용이 기대와 달라요.')\nprint('준비 값과 자료를 바꿔도 같은 원리로 계산했어요.')\n"
+    },
+    {
+      "id": "index-kinds",
+      "title": "클러스터드와 넌클러스터드 인덱스",
+      "goal": "인덱스는 행을 어떻게 놓느냐에 따라 두 가지로 나눠요. 클러스터드 인덱스(clustered index)는 행 자체를 키 순서로 놓아요.\n행은 한 가지 순서로만 놓일 수 있어요. 그래서 표마다 하나만 만들어요.\n넌클러스터드 인덱스(nonclustered index)는 따로 키 목록을 둬요. 목록의 키마다 행 위치를 가리키죠. 한 표에 여러 개 만들 수 있어요. 앞 문제에서 idx_customer를 만들자 페이지 수가 늘었죠? 따로 둔 목록이 쓴 페이지예요.\n\n설명에 맞는 인덱스 종류의 이름을 적으세요. ? 자리만 바꾸면 돼요.\n한국어나 영어 중 하나로 적어도 되고, 위처럼 괄호에 영어를 붙여도 돼요.\n① 행이 키 순서대로 놓여 있어서 표마다 하나만 만들 수 있어요.\n② 따로 둔 키 목록이 행 위치를 가리켜요. 여러 개 만들 수 있어요.",
+      "language": "answer",
+      "entry_file": "answer.txt",
+      "starter_code": "① ?\n② ?\n",
+      "solution": "① 클러스터드 인덱스\n② 넌클러스터드 인덱스\n",
+      "files": {},
+      "tests": [
+        {
+          "input": "",
+          "expected": "클러스터드인덱스\n넌클러스터드인덱스"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드인덱스"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형인덱스"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형"
+        },
+        {
+          "input": "1",
+          "expected": "clustered index"
+        },
+        {
+          "input": "1",
+          "expected": "clustered"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드인덱스(clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드인덱스 (clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드인덱스(clustered)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드인덱스 (clustered)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드(clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드 (clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드(clustered)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터드 (clustered)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형인덱스(clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형인덱스 (clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형인덱스(clustered)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형인덱스 (clustered)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형(clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형 (clustered index)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형(clustered)"
+        },
+        {
+          "input": "1",
+          "expected": "클러스터형 (clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형"
+        },
+        {
+          "input": "2",
+          "expected": "nonclustered index"
+        },
+        {
+          "input": "2",
+          "expected": "non-clustered index"
+        },
+        {
+          "input": "2",
+          "expected": "non clustered index"
+        },
+        {
+          "input": "2",
+          "expected": "nonclustered"
+        },
+        {
+          "input": "2",
+          "expected": "non-clustered"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드인덱스 (non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "넌클러스터드 (non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드인덱스 (non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "논클러스터드 (non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드인덱스 (non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터드 (non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형인덱스 (non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형(nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형 (nonclustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형(non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형 (non-clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형(non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형 (non clustered index)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형(nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형 (nonclustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형(non-clustered)"
+        },
+        {
+          "input": "2",
+          "expected": "비클러스터형 (non-clustered)"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "행 자체가 정렬되는 쪽이 ①이에요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "① ?\n② ?\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. ? / ?"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. 표마다 하나뿐인 쪽은 클러스터드예요. 둘을 바꿔 적기 쉬워요."
+        },
+        {
+          "action": "patch_code",
+          "before": "① ?\n② ?",
+          "after": "① 클러스터드 인덱스\n② 넌클러스터드 인덱스",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. 클러스터드인덱스 / 넌클러스터드인덱스"
+        },
+        {
+          "action": "submit"
+        }
+      ]
+    },
+    {
+      "id": "physical-design",
+      "title": "반정규화와 파티셔닝",
+      "goal": "물리 설계에서는 성능을 위해 표를 합치거나 나눠요. 반정규화(denormalization)는 일부러 중복을 두는 설계예요. 조회를 빠르게 하려고 표를 합치거나 열을 복사해 두죠.\n파티셔닝(partitioning)은 큰 표를 여러 조각으로 나눠 저장해요. 값의 구간으로 나누면 범위 분할(range)이에요. 정한 값 목록으로 나누면 목록 분할(list)이고요. 해시 함수 값으로 고르게 흩으면 해시 분할(hash)이에요.\nSQLite에는 파티셔닝 기능이 없어요. 그래서 이 문제는 글로만 풀어요.\n\n설명에 맞는 용어의 이름을 적으세요. ? 자리만 바꾸면 돼요.\n한국어나 영어 중 하나로 적어도 되고, 위처럼 괄호에 영어를 붙여도 돼요.\n① 주문을 볼 때마다 고객 표와 조인해서 느려요. 그래서 주문 표에도 고객 이름을 복사해 뒀어요. 이런 설계를 뭐라고 할까요?\n② 큰 주문 표를 주문 연도 구간별 조각으로 나눠 저장해요. 어떤 분할일까요?",
+      "language": "answer",
+      "entry_file": "answer.txt",
+      "starter_code": "① ?\n② ?\n",
+      "solution": "① 반정규화\n② 범위 분할\n",
+      "files": {},
+      "tests": [
+        {
+          "input": "",
+          "expected": "반정규화\n범위분할"
+        },
+        {
+          "input": "1",
+          "expected": "반정규화"
+        },
+        {
+          "input": "1",
+          "expected": "역정규화"
+        },
+        {
+          "input": "1",
+          "expected": "denormalization"
+        },
+        {
+          "input": "1",
+          "expected": "de-normalization"
+        },
+        {
+          "input": "1",
+          "expected": "반정규화(denormalization)"
+        },
+        {
+          "input": "1",
+          "expected": "반정규화 (denormalization)"
+        },
+        {
+          "input": "1",
+          "expected": "반정규화(de-normalization)"
+        },
+        {
+          "input": "1",
+          "expected": "반정규화 (de-normalization)"
+        },
+        {
+          "input": "1",
+          "expected": "역정규화(denormalization)"
+        },
+        {
+          "input": "1",
+          "expected": "역정규화 (denormalization)"
+        },
+        {
+          "input": "1",
+          "expected": "역정규화(de-normalization)"
+        },
+        {
+          "input": "1",
+          "expected": "역정규화 (de-normalization)"
+        },
+        {
+          "input": "2",
+          "expected": "범위분할"
+        },
+        {
+          "input": "2",
+          "expected": "범위"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티셔닝"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티션"
+        },
+        {
+          "input": "2",
+          "expected": "레인지파티셔닝"
+        },
+        {
+          "input": "2",
+          "expected": "레인지분할"
+        },
+        {
+          "input": "2",
+          "expected": "range"
+        },
+        {
+          "input": "2",
+          "expected": "range partitioning"
+        },
+        {
+          "input": "2",
+          "expected": "range partition"
+        },
+        {
+          "input": "2",
+          "expected": "범위분할(range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위분할 (range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위분할(range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위분할 (range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위분할(range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "범위분할 (range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "범위(range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위 (range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위(range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위 (range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위(range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "범위 (range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티셔닝(range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티셔닝 (range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티셔닝(range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티셔닝 (range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티셔닝(range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티셔닝 (range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티션(range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티션 (range)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티션(range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티션 (range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티션(range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "범위파티션 (range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지파티셔닝(range)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지파티셔닝 (range)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지파티셔닝(range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지파티셔닝 (range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지파티셔닝(range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지파티셔닝 (range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지분할(range)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지분할 (range)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지분할(range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지분할 (range partitioning)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지분할(range partition)"
+        },
+        {
+          "input": "2",
+          "expected": "레인지분할 (range partition)"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": true,
+      "hints": [
+        "①은 일부러 중복을 뒀어요.",
+        "②는 값의 구간으로 나눴어요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "① ?\n② ?\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. ? / ?"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. ①에 정규화라고 적기 쉬워요. 정규화는 중복을 없애는 쪽이에요."
+        },
+        {
+          "action": "patch_code",
+          "before": "① ?\n② ?",
+          "after": "① 반정규화\n② 범위 분할",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. 반정규화 / 범위분할"
+        },
+        {
+          "action": "submit"
+        }
+      ]
+    },
+    {
+      "id": "rule-mix",
+      "title": "도전 · 규칙 세 가지를 한 표에 걸어요",
+      "goal": "앞에서 본 규칙은 한 표에 여러 개, 한 열에도 여러 개 붙일 수 있어요.\n행은 모든 규칙을 통과해야 표에 들어가요.\n\n받은 주문(incoming)이에요. id가 받은 순서예요.\n\n| id | order_no | qty |\n|---|---|---|\n| 1 | A-1 | 2 |\n| 2 | A-2 | NULL |\n| 3 | A-2 | 3 |\n| 4 | A-3 | 0 |\n| 5 | A-1 | 5 |\n| 6 | A-4 | 1 |\n\n주문(orders) 표에 주석에 적힌 규칙 세 가지를 거세요.\nafter.sql이 받은 주문을 받은 순서대로 하나씩 넣어요. 막힌 행은 건너뛰고요.\nNULL 수량 행이 어떻게 되는지 꼭 확인하세요.",
+      "language": "sql",
+      "entry_file": "main.sql",
+      "starter_code": "-- 주문 표를 만들어요. 아직 규칙이 하나도 없어요.\nCREATE TABLE orders (\n  -- 규칙 1: 주문 번호는 서로 겹치면 안 돼요.\n  order_no TEXT,\n  -- 규칙 2와 3: 수량은 꼭 있어야 하고 1개 이상이어야 해요.\n  qty INTEGER\n);\n-- 행은 after.sql이 받은 순서대로 넣어요. 규칙은 표에만 걸어요.\n",
+      "solution": "-- 주문 표를 만들어요. 아직 규칙이 하나도 없어요.\nCREATE TABLE orders (\n  -- 규칙 1: 주문 번호는 서로 겹치면 안 돼요.\n  order_no TEXT UNIQUE,\n  -- 규칙 2와 3: 수량은 꼭 있어야 하고 1개 이상이어야 해요.\n  qty INTEGER NOT NULL CHECK (qty >= 1)\n);\n-- 행은 after.sql이 받은 순서대로 넣어요. 규칙은 표에만 걸어요.\n",
+      "files": {
+        "setup.sql": "CREATE TABLE incoming (id INTEGER, order_no TEXT, qty INTEGER);\nINSERT INTO incoming VALUES (1, 'A-1', 2), (2, 'A-2', NULL), (3, 'A-2', 3), (4, 'A-3', 0), (5, 'A-1', 5), (6, 'A-4', 1);\n",
+        "after.sql": "-- 받은 주문(incoming)을 받은 순서(id)대로 옮겨요. 막힌 행은 건너뛰어요.\nINSERT OR IGNORE INTO orders SELECT order_no, qty FROM incoming ORDER BY id;\n-- 들어간 주문을 주문 번호 순서로 봐요.\nSELECT order_no, qty FROM orders ORDER BY order_no, qty;\n"
+      },
+      "tests": [
+        {
+          "input": "",
+          "expected": "order_no | qty\nA-1 | 2\nA-2 | 3\nA-4 | 1"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": false,
+      "hints": [
+        "CHECK만으로는 NULL 수량이 통과해요.",
+        "`order_no TEXT UNIQUE`와 `qty INTEGER NOT NULL CHECK (qty >= 1)`이에요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "-- 주문 표를 만들어요. 아직 규칙이 하나도 없어요.\nCREATE TABLE orders (\n  -- 규칙 1: 주문 번호는 서로 겹치면 안 돼요.\n  order_no TEXT,\n  -- 규칙 2와 3: 수량은 꼭 있어야 하고 1개 이상이어야 해요.\n  qty INTEGER\n);\n-- 행은 after.sql이 받은 순서대로 넣어요. 규칙은 표에만 걸어요.\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. LL / A-2 | 3 / A-3 | 0 / A-4 | 1"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. NOT NULL을 빼면 NULL 수량 행이 들어가 같은 번호의 주문을 막아요."
+        },
+        {
+          "action": "patch_code",
+          "before": "  order_no TEXT,\n  -- 규칙 2와 3: 수량은 꼭 있어야 하고 1개 이상이어야 해요.\n  qty INTEGER\n",
+          "after": "  order_no TEXT UNIQUE,\n  -- 규칙 2와 3: 수량은 꼭 있어야 하고 1개 이상이어야 해요.\n  qty INTEGER NOT NULL CHECK (qty >= 1)\n",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. ty / A-1 | 2 / A-2 | 3 / A-4 | 1"
+        },
+        {
+          "action": "submit"
+        }
+      ],
+      "variations": [
+        {
+          "values": {
+            "setup": "CREATE TABLE incoming (id INTEGER, order_no TEXT, qty INTEGER);\nINSERT INTO incoming VALUES (1, 'B-7', NULL), (2, 'B-7', 4), (3, 'B-8', 1), (4, 'B-8', 2), (5, 'B-9', -2);\n"
+          },
+          "expected": "order_no | qty\nB-7 | 4\nB-8 | 1"
+        },
+        {
+          "values": {
+            "setup": "CREATE TABLE incoming (id INTEGER, order_no TEXT, qty INTEGER);\nINSERT INTO incoming VALUES (1, 'C-1', 0), (2, 'C-1', 1), (3, 'C-2', 6), (4, 'C-3', NULL),\n  (5, 'C-2', 2), (6, 'C-4', 1);\n"
+          },
+          "expected": "order_no | qty\nC-1 | 1\nC-2 | 6\nC-4 | 1"
+        }
+      ]
+    },
+    {
+      "id": "cascade-view",
+      "title": "도전 · 팀을 지운 뒤 뷰를 읽어요",
+      "goal": "외래키의 ON DELETE CASCADE와 뷰를 함께 따라가요.\n뷰는 읽는 순간의 표로 다시 계산한다는 걸 떠올리세요.\n\n다음 SQL을 실행하지 말고 결과를 먼저 적으세요.\n첫 줄 열 이름부터 출력 모양 그대로 적어요.\n\n```sql\n-- 외래키 검사를 켜요.\nPRAGMA foreign_keys = ON;\nCREATE TABLE team (id INTEGER PRIMARY KEY, name TEXT);\n-- 선수 표의 team_id는 팀 표의 id를 가리켜요.\nCREATE TABLE player (\n  id INTEGER PRIMARY KEY,\n  team_id INTEGER,\n  FOREIGN KEY (team_id) REFERENCES team(id) ON DELETE CASCADE\n);\n-- 팀 셋과 선수 여덟 명을 넣어요.\nINSERT INTO team VALUES (1, '해'), (2, '달'), (3, '별');\nINSERT INTO player VALUES (10, 1), (11, 2), (12, 3), (13, 3), (14, 1), (15, 2), (16, 1), (17, 3);\n-- 팀별 선수 수를 세는 뷰예요.\nCREATE VIEW team_size AS\n  SELECT team_id, COUNT(*) AS cnt FROM player GROUP BY team_id;\n-- 해 팀을 지워요.\nDELETE FROM team WHERE id = 1;\nSELECT team_id, cnt FROM team_size ORDER BY team_id;\n```",
+      "language": "answer",
+      "entry_file": "answer.txt",
+      "starter_code": "?\n",
+      "solution": "team_id | cnt\n2 | 2\n3 | 3\n",
+      "files": {},
+      "tests": [
+        {
+          "input": "",
+          "expected": "team_id | cnt\n2 | 2\n3 | 3"
+        },
+        {
+          "input": "",
+          "expected": "team_id|cnt\n2|2\n3|3"
+        },
+        {
+          "input": "",
+          "expected": "2 | 2\n3 | 3"
+        },
+        {
+          "input": "",
+          "expected": "2|2\n3|3"
+        }
+      ],
+      "web_checks": [],
+      "git_checks": null,
+      "required": false,
+      "hints": [
+        "DELETE가 끝나면 1번 팀 선수 행도 함께 지워져요.",
+        "뷰는 남은 player 행으로 다시 세요."
+      ],
+      "narration": [
+        {
+          "action": "set_code",
+          "code": "?\n",
+          "say": "준비 코드를 먼저 실행해 볼게요."
+        },
+        {
+          "action": "run",
+          "expected_failure": false
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. ?"
+        },
+        {
+          "action": "say",
+          "target": "editor",
+          "text": "조심하세요. 뷰를 DELETE 전에 만들었다고 지운 팀까지 세기 쉬워요."
+        },
+        {
+          "action": "patch_code",
+          "before": "?",
+          "after": "team_id | cnt\n2 | 2\n3 | 3",
+          "say": "작은 부분을 바꿔 원리를 확인해요."
+        },
+        {
+          "action": "run"
+        },
+        {
+          "action": "say",
+          "target": "output",
+          "text": "실행 결과를 비교해요. team_id | cnt / 2 | 2 / 3 | 3"
+        },
+        {
+          "action": "submit"
+        }
+      ]
+    }
+  ]
+}
